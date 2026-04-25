@@ -1,0 +1,53 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: auth-service
+  namespace: dev
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  strategy:
+    blueGreen:
+      activeService: auth-service-active
+      previewService: auth-service-preview
+      autoPromotionEnabled: false
+      previewReplicaCount: 1
+      scaleDownDelaySeconds: 30
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: sneakertail/auth-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: auth-service-config
+            - secretRef:
+                name: auth-service-secret
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+
