@@ -25,4 +25,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/sneakertail/auth-service:main-${{ github.sha }}
+          tags: |
+            ghcr.io/sneakertail/auth-service:main
+            ghcr.io/sneakertail/auth-service:main-${{ github.sha }}

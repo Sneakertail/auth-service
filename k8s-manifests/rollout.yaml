@@ -23,8 +23,8 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: sneakertail/auth-service:latest
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/sneakertail/auth-service:dev
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 3001

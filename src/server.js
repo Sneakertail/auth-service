@@ -1,16 +1,76 @@
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// In-memory user store with seeded demo accounts
-let nextId = 3;
-const users = [
-    { userId: 1, username: 'admin', password: 'admin', role: 'admin', firstName: 'Admin', lastName: 'User', email: 'admin@sneakertail.com' },
-    { userId: 2, username: 'user', password: 'user', role: 'user', firstName: 'Demo', lastName: 'User', email: 'user@sneakertail.com' },
-];
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret) {
+    console.warn('JWT_SECRET is not set. Tokens will be signed with an unsafe development fallback.');
+}
+
+let nextId = 1;
+const users = [];
+
+const hashPassword = (password, salt = crypto.randomBytes(16).toString('hex')) => {
+    const hash = crypto.pbkdf2Sync(password, salt, 120000, 64, 'sha512').toString('hex');
+    return `${salt}:${hash}`;
+};
+
+const verifyPassword = (password, storedHash) => {
+    const [salt, hash] = storedHash.split(':');
+    const candidate = hashPassword(password, salt).split(':')[1];
+    return crypto.timingSafeEqual(Buffer.from(candidate, 'hex'), Buffer.from(hash, 'hex'));
+};
+
+const createToken = (user) => {
+    const payload = {
+        userId: user.userId,
+        username: user.username,
+        role: user.role,
+        iat: Date.now(),
+    };
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = crypto
+        .createHmac('sha256', jwtSecret || 'development-only-secret')
+        .update(encodedPayload)
+        .digest('base64url');
+    return `${encodedPayload}.${signature}`;
+};
+
+const addSeedUser = ({ username, password, role, firstName, lastName, email }) => {
+    if (!username || !password) return;
+    users.push({
+        userId: nextId++,
+        username,
+        passwordHash: hashPassword(password),
+        role,
+        firstName,
+        lastName,
+        email,
+    });
+};
+
+addSeedUser({
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD,
+    role: 'admin',
+    firstName: 'Admin',
+    lastName: 'User',
+    email: process.env.ADMIN_EMAIL || 'admin@sneakertail.com',
+});
+
+addSeedUser({
+    username: process.env.DEMO_USERNAME,
+    password: process.env.DEMO_PASSWORD,
+    role: 'user',
+    firstName: 'Demo',
+    lastName: 'User',
+    email: process.env.DEMO_EMAIL || 'user@sneakertail.com',
+});
 
 app.post('/api/auth/register', (req, res) => {
     const { username, password, firstName, lastName, email } = req.body;
@@ -21,11 +81,10 @@ app.post('/api/auth/register', (req, res) => {
     if (username.length < 3) {
         return res.status(400).json({ error: 'Username must be at least 3 characters' });
     }
-    if (password.length < 3) {
-        return res.status(400).json({ error: 'Password must be at least 3 characters' });
+    if (password.length < 8) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    // Check if username already exists
     const existing = users.find(u => u.username.toLowerCase() === username.toLowerCase());
     if (existing) {
         return res.status(409).json({ error: 'Username already taken' });
@@ -34,7 +93,7 @@ app.post('/api/auth/register', (req, res) => {
     const newUser = {
         userId: nextId++,
         username,
-        password,
+        passwordHash: hashPassword(password),
         role: 'user',
         firstName: firstName || '',
         lastName: lastName || '',
@@ -54,15 +113,13 @@ app.post('/api/auth/login', (req, res) => {
         return res.status(400).json({ error: 'Username and password required' });
     }
 
-    const user = users.find(u => u.username === username && u.password === password);
-    if (!user) {
+    const user = users.find(u => u.username === username);
+    if (!user || !verifyPassword(password, user.passwordHash)) {
         return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = `${user.role}-jwt-${user.userId}-${Date.now()}`;
-
     res.json({
-        token,
+        token: createToken(user),
         role: user.role,
         userId: user.userId,
         username: user.username,
